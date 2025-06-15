@@ -18,18 +18,18 @@ load_dotenv()
 
 # ----------- Azure OpenAI client -------------
 client = AzureOpenAI(
-    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+    api_key=st.secrets["AZURE_OPENAI_API_KEY"],
+    azure_endpoint=st.secrets["AZURE_OPENAI_ENDPOINT"],
     api_version="2025-01-01-preview",
 )
 
 # ----------- AWS S3 config -------------
-aws_access_key = os.getenv("AWS_ACCESS_KEY")
-aws_secret_key = os.getenv("AWS_SECRET_KEY")
-region_name = os.getenv("AWS_REGION")
-bucket_name = os.getenv("AWS_BUCKET")
-s3_prefix = os.getenv("S3_PREFIX")
-cdn_base_url = os.getenv("CDN_BASE")
+aws_access_key = st.secrets["AWS_ACCESS_KEY"]
+aws_secret_key = st.secrets["AWS_SECRET_KEY"]
+region_name = st.secrets["AWS_REGION"]
+bucket_name = st.secrets["AWS_BUCKET"]
+s3_prefix = st.secrets["S3_PREFIX"]
+cdn_base_url = st.secrets["CDN_BASE"]
 cdn_prefix_media = "https://media.suvichaar.org/"
 
 s3_client = boto3.client(
