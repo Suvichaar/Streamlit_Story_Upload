@@ -4,4 +4,4 @@ llama-index-llms-azure-openai
 openai 
 boto3
 requests
-
+python-dotenv
