@@ -9,7 +9,6 @@ import boto3
 import requests
 from urllib.parse import urlparse
 from openai import AzureOpenAI
-from dotenv import load_dotenv
 from datetime import datetime, timezone
 import re
 
