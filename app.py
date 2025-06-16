@@ -142,7 +142,7 @@ if submit_button:
 
     # ----------- Modify HTML Template -------------
     try:
-        template_path = r"C:\\Users\\DLPS\\OneDrive\\Desktop\\StoriesLab\\masterregex.html"
+        template_path = "templates/masterregex.html"
         with open(template_path, "r", encoding="utf-8") as file:
             html_template = file.read()
 
