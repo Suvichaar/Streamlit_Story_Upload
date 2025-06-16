@@ -91,6 +91,7 @@ with st.form(key="content_form"):
     language = st.selectbox("Select your Language", options=["en-US", "hi-IN"])
     image_url = st.text_input("Image URL to upload to S3")
     html_file = st.file_uploader("Upload your Raw HTML File", type=["html", "htm"])
+    categories = st.selectbox("Select your Categories",options=["Art","Travel","Entertainment","Literature","Books","Sports","History","Culture","Wildlife","Spiritual","Food"])
     submit_button = st.form_submit_button("Submit")
 
 if submit_button:
@@ -133,8 +134,6 @@ if submit_button:
             uploaded_url = f"{cdn_base_url}{s3_key}"
             key_path = s3_key
             st.success("Image uploaded successfully!")
-            # Optional: show uploaded image preview
-            # st.image(uploaded_url, caption="Uploaded Image", use_container_width=True)
 
         except Exception as e:
             st.warning(f"Failed to fetch/upload image. Using fallback. Error: {e}")
@@ -169,7 +168,7 @@ if submit_button:
 
         for label, (width, height) in resize_presets.items():
             template = {
-                "bucket": "suvichaarapp",
+                "bucket": bucket_name,
                 "key": key_path,
                 "edits": {
                     "resize": {
@@ -183,34 +182,22 @@ if submit_button:
             final_url = f"{cdn_prefix_media}{encoded}"
             html_template = html_template.replace(f"{{{{{label}}}}}", final_url)
 
-        # ----------- Extract <style amp-custom> block from uploaded raw HTML -------------
         extracted_style = ""
         if html_file:
             raw_html = html_file.read().decode("utf-8")
-
-            # Extract <style amp-custom> block
-            style_match = re.search(r"(<style\s+amp-custom[^>]*>.*?</style>)", raw_html, re.DOTALL | re.IGNORECASE)
+            style_match = re.search(r"(<style\\s+amp-custom[^>]*>.*?</style>)", raw_html, re.DOTALL | re.IGNORECASE)
             if style_match:
                 extracted_style = style_match.group(1)
-            else:
-                st.info("No <style amp-custom> block found in uploaded HTML.")
-
-            # Extract <amp-story> block
             start = raw_html.find("<amp-story standalone")
             end = raw_html.find("</amp-story>")
             extracted_amp_story = ""
             if start != -1 and end != -1:
                 extracted_amp_story = raw_html[start:end + len("</amp-story>")]
-
-                # Remove outer <amp-story> tags to avoid duplication in template
-                extracted_amp_story = re.sub(r'^<amp-story\b[^>]*>', '', extracted_amp_story, count=1).strip()
+                extracted_amp_story = re.sub(r'^<amp-story\\b[^>]*>', '', extracted_amp_story, count=1).strip()
                 extracted_amp_story = re.sub(r'</amp-story>$', '', extracted_amp_story).strip()
-            else:
-                st.warning("No complete <amp-story> block found in uploaded HTML.")
         else:
             extracted_amp_story = ""
 
-        # Insert extracted <style amp-custom> into <head> of your template before </head>
         if extracted_style:
             head_close_pos = html_template.lower().find("</head>")
             if head_close_pos != -1:
@@ -219,37 +206,49 @@ if submit_button:
                     "\n" + extracted_style + "\n" +
                     html_template[head_close_pos:]
                 )
-            else:
-                st.warning("No </head> tag found in HTML template to insert <style amp-custom>.")
 
-        # Insert extracted AMP story block inside template
         if extracted_amp_story:
-            # Locate opening <amp-story> tag in template
-            amp_story_opening_match = re.search(r"<amp-story\b[^>]*>", html_template)
+            amp_story_opening_match = re.search(r"<amp-story\\b[^>]*>", html_template)
             analytics_tag = '<amp-story-auto-analytics gtag-id="G-2D5GXVRK1E" class="i-amphtml-layout-container" i-amphtml-layout="container"></amp-story-auto-analytics>'
-
             if amp_story_opening_match and analytics_tag in html_template:
                 insert_pos = amp_story_opening_match.end()
-                # Insert the extracted story slides just after the opening tag, before analytics tag
                 html_template = (
-                    html_template[:insert_pos]
-                    + "\n\n"
-                    + extracted_amp_story
-                    + "\n\n"
-                    + html_template[insert_pos:]
+                    html_template[:insert_pos] + "\n\n" + extracted_amp_story + "\n\n" + html_template[insert_pos:]
                 )
-            else:
-                st.warning("Could not find insertion points in the HTML template.")
 
         st.markdown("### Final Modified HTML")
         st.code(html_template, language="html")
 
-        # Provide download button for final HTML
         st.download_button(
             label="Download Final HTML",
             data=html_template,
             file_name=f"{slug_nano}.html",
             mime="text/html",
+        )
+
+        # ----------- Generate and Provide Metadata JSON -------------
+        metadata_dict = {
+            "story_title": story_title,
+            "categories": categories,
+            "filterTags": "",
+            "story_uid": nano,
+            "story_link": canurl,
+            "storyhtmlurl": canurl1,
+            "urlslug": slug_nano,
+            "cover_image_link": final_url,
+            "publisher_id": "",
+            "story_logo_link": "https://media.suvichaar.org/filters:resize/96x96/media/brandasset/suvichaariconblack.png",
+            "keywords": meta_keywords,
+            "metadescription": meta_description,
+            "lang": language
+        }
+
+        json_str = json.dumps(metadata_dict, indent=4)
+        st.download_button(
+            label="Download Story Metadata (JSON)",
+            data=json_str,
+            file_name=f"{slug_nano}_metadata.json",
+            mime="application/json",
         )
 
     except Exception as e:
