@@ -16,20 +16,19 @@ import re
 # Load environment variables
 load_dotenv()
 
-# ----------- Azure OpenAI client -------------
 client = AzureOpenAI(
-    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+    api_key=st.secrets["AZURE_OPENAI_API_KEY"],
+    azure_endpoint=st.secrets["AZURE_OPENAI_ENDPOINT"],
     api_version="2025-01-01-preview",
 )
 
 # ----------- AWS S3 config -------------
-aws_access_key = os.getenv("AWS_ACCESS_KEY")
-aws_secret_key = os.getenv("AWS_SECRET_KEY")
-region_name = os.getenv("AWS_REGION")
-bucket_name = os.getenv("AWS_BUCKET")
-s3_prefix = os.getenv("S3_PREFIX")
-cdn_base_url = os.getenv("CDN_BASE")
+aws_access_key = st.secrets["AWS_ACCESS_KEY"]
+aws_secret_key = st.secrets["AWS_SECRET_KEY"]
+region_name = st.secrets["AWS_REGION"]
+bucket_name = st.secrets["AWS_BUCKET"]
+s3_prefix = st.secrets["S3_PREFIX"]
+cdn_base_url = st.secrets["CDN_BASE"]
 cdn_prefix_media = "https://media.suvichaar.org/"
 
 s3_client = boto3.client(
@@ -91,6 +90,7 @@ with st.form(key="content_form"):
     language = st.selectbox("Select your Language", options=["en-US", "hi-IN"])
     image_url = st.text_input("Image URL to upload to S3")
     html_file = st.file_uploader("Upload your Raw HTML File", type=["html", "htm"])
+    categories = st.selectbox("Select your Categories",options=["Art","Travel","Entertainment","Literature","Books","Sports","History","Culture","Wildlife","Spiritual","Food"])
     submit_button = st.form_submit_button("Submit")
 
 if submit_button:
@@ -133,7 +133,7 @@ if submit_button:
             uploaded_url = f"{cdn_base_url}{s3_key}"
             key_path = s3_key
             st.success("Image uploaded successfully!")
-            st.image(uploaded_url, caption="Uploaded Image", use_container_width=True)
+            # st.image(uploaded_url, caption="Uploaded Image", use_container_width=True)
 
         except Exception as e:
             st.warning(f"Failed to fetch/upload image. Using fallback. Error: {e}")
@@ -195,7 +195,7 @@ if submit_button:
                 st.info("No <style amp-custom> block found in uploaded HTML.")
 
             # Extract <amp-story> block
-            start = raw_html.find("<amp-story standalone")
+            start = raw_html.find("<amp-story-page")
             end = raw_html.find("</amp-story>")
             extracted_amp_story = ""
             if start != -1 and end != -1:
@@ -245,6 +245,31 @@ if submit_button:
             data=html_template,
             file_name=f"{slug_nano}.html",
             mime="text/html",
+        )
+
+        # ----------- Generate and Provide Metadata JSON -------------
+        metadata_dict = {
+            "story_title": story_title,
+            "categories": categories,
+            "filterTags": "",
+            "story_uid": nano,
+            "story_link": canurl,
+            "storyhtmlurl": canurl1,
+            "urlslug": slug_nano,
+            "cover_image_link": final_url,
+            "publisher_id": "",
+            "story_logo_link": "https://media.suvichaar.org/filters:resize/96x96/media/brandasset/suvichaariconblack.png",
+            "keywords": meta_keywords,
+            "metadescription": meta_description,
+            "lang": language
+        }
+
+        json_str = json.dumps(metadata_dict, indent=4)
+        st.download_button(
+            label="Download Story Metadata (JSON)",
+            data=json_str,
+            file_name=f"{slug_nano}_metadata.json",
+            mime="application/json",
         )
 
     except Exception as e:
