@@ -349,27 +349,19 @@ if submit_button:
         json_str = json.dumps(metadata_dict, indent=4)
 
         # Save data to session_state
-        st.session_state["final_html"] = html_template
-        st.session_state["metadata_json"] = json.dumps(metadata_dict, indent=4)
+        zip_buffer = BytesIO()
 
-        # Use BytesIO to prevent re-render reset
-        html_buffer = BytesIO(st.session_state["final_html"].encode("utf-8"))
-        json_buffer = BytesIO(st.session_state["metadata_json"].encode("utf-8"))
+        with zipfile.ZipFile(zip_buffer, "w") as zip_file:
+            zip_file.writestr(f"{slug_nano}.html", html_template)
+            zip_file.writestr(f"{slug_nano}_metadata.json", json_str)
         
-        # Provide download button for final HTML
-        st.download_button(
-            label="Download Final HTML",
-            data=html_template,
-            file_name=f"{slug_nano}.html",
-            mime="text/html",
-        )
+        zip_buffer.seek(0)
 
-        json_str = json.dumps(metadata_dict, indent=4)
         st.download_button(
-            label="Download Story Metadata (JSON)",
-            data=json_str,
-            file_name=f"{slug_nano}_metadata.json",
-            mime="application/json",
+            label="📦 Download HTML + Metadata ZIP",
+            data=zip_buffer,
+            file_name=f"{slug_nano}_story_bundle.zip",
+            mime="application/zip"
         )
 
     except Exception as e:
