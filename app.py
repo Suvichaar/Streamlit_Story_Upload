@@ -16,6 +16,7 @@ import re
 # Load environment variables
 load_dotenv()
 
+# Azure OpenAI client
 client = AzureOpenAI(
     api_key=st.secrets["AZURE_OPENAI_API_KEY"],
     azure_endpoint=st.secrets["AZURE_OPENAI_ENDPOINT"],
@@ -38,30 +39,17 @@ s3_client = boto3.client(
     region_name=region_name,
 )
 
-# ----------- Helper: Canonical URL generator -------------
+# Slug and URL generator
 def generate_slug_and_urls(title):
     if not title or not isinstance(title, str):
-        raise ValueError("Invalid title: Title must be a non-empty string.")
-
-    slug = (
-        title.lower()
-        .replace(" ", "-")
-        .replace("_", "-")
-    )
-    slug = ''.join(c for c in slug if c in string.ascii_lowercase + string.digits + '-')
+        raise ValueError("Invalid title")
+    slug = ''.join(c for c in title.lower().replace(" ", "-").replace("_", "-") if c in string.ascii_lowercase + string.digits + '-')
     slug = slug.strip('-')
+    nano = ''.join(random.choices(string.ascii_letters + string.digits + '_-', k=10)) + '_G'
+    slug_nano = f"{slug}_{nano}" # this is the urlslug -> slug_nano.html
+    return nano, slug_nano, f"https://suvichaar.org/stories/{slug_nano}", f"https://stories.suvichaar.org/{slug_nano}.html"
 
-    alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-'
-    nano_id = ''.join(random.choices(alphabet, k=10))
-    nano = f"{nano_id}_G"
-    slug_nano = f"{slug}_{nano}"
-
-    canurl = f"https://suvichaar.org/stories/{slug_nano}"
-    canurl1 = f"https://stories.suvichaar.org/{slug_nano}.html"
-
-    return nano, slug_nano, canurl, canurl1
-
-# ----------- Sidebar Chat -------------
+# Sidebar Chat
 with st.sidebar:
     st.header("Azure OpenAI Chat")
     user_question = st.text_input("Your question:")
@@ -80,17 +68,78 @@ with st.sidebar:
                 st.success("Answer:")
                 st.write(response.choices[0].message.content)
 
-# ----------- Main Form -------------
+# Content Submission Form
 st.title("Content Submission Form")
-with st.form(key="content_form"):
-    story_title = st.text_input("Story Title")
-    meta_description = st.text_area("Meta Description")
-    meta_keywords = st.text_input("Meta Keywords (comma separated)")
-    content_type = st.selectbox("Select your contenttype", options=["News", "Article"])
-    language = st.selectbox("Select your Language", options=["en-US", "hi-IN"])
-    image_url = st.text_input("Image URL to upload to S3")
+if "last_title" not in st.session_state:
+    st.session_state.last_title = ""
+    st.session_state.meta_description = ""
+    st.session_state.meta_keywords = ""
+
+# Title input outside form for dynamic update
+story_title = st.text_input("Story Title")
+
+# Auto-generate metadata if story_title changed
+
+if story_title.strip() and story_title != st.session_state.last_title:
+    with st.spinner("Generating meta description and keywords..."):
+        messages = [
+            {
+                "role": "user",
+                "content": f"Generate a short SEO-friendly meta description and meta keywords for the story titled: '{story_title}'"}]
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4",
+                messages=messages,
+                max_tokens=150,
+                temperature=0.5,
+            )
+            output = response.choices[0].message.content
+            desc = re.search(r"[Dd]escription\s*[:\-]\s*(.+)", output)
+            keys = re.search(r"[Kk]eywords\s*[:\-]\s*(.+)", output)
+            st.session_state.meta_description = desc.group(1).strip() if desc else ""
+            st.session_state.meta_keywords = keys.group(1).strip() if keys else ""
+        except Exception as e:
+            st.warning(f"Error: {e}")
+        st.session_state.last_title = story_title
+
+with st.form("content_form"):
+    meta_description = st.text_area("Meta Description", value=st.session_state.meta_description)
+    meta_keywords = st.text_input("Meta Keywords (comma separated)", value=st.session_state.meta_keywords)
+    content_type = st.selectbox("Select your contenttype", ["News", "Article"])
+    language = st.selectbox("Select your Language", ["en-US", "hi"])
+    image_url = st.text_input("Enter your Image URL")
     html_file = st.file_uploader("Upload your Raw HTML File", type=["html", "htm"])
-    categories = st.selectbox("Select your Categories",options=["Art","Travel","Entertainment","Literature","Books","Sports","History","Culture","Wildlife","Spiritual","Food"])
+    categories = st.selectbox("Select your Categories", ["Art", "Travel", "Entertainment", "Literature", "Books", "Sports", "History", "Culture", "Wildlife", "Spiritual", "Food"])
+    # Input field
+
+    default_tags = [
+        "Lata Mangeshkar",
+        "Indian Music Legends",
+        "Playback Singing",
+        "Bollywood Golden Era",
+        "Indian Cinema",
+        "Musical Icons",
+        "Voice of India",
+        "Bharat Ratna",
+        "Indian Classical Music",
+        "Hindi Film Songs",
+        "Legendary Singers",
+        "Cultural Heritage",
+        "Suvichaar Stories"
+    ]
+
+    tag_input = st.text_input(
+        "Enter Filter Tags (comma separated):",
+        value=", ".join(default_tags),
+        help="Example: Music, Culture, Lata Mangeshkar"
+    )
+
+    use_custom_cover = st.radio("Do you want to add a custom cover image URL?", ("No", "Yes"))
+    if use_custom_cover == "Yes":
+        cover_image_url = st.text_input("Enter your custom Cover Image URL")
+    else:
+        cover_image_url = image_url  # fallback to image_url
+    # Select a user randomly and map to profile URL
     submit_button = st.form_submit_button("Submit")
 
 if submit_button:
@@ -102,86 +151,126 @@ if submit_button:
     st.write(f"**Language:** {language}")
 
     key_path = "media/default.png"
-    uploaded_url = None
+    uploaded_url = ""
 
-    # Generate canonical info
     try:
         nano, slug_nano, canurl, canurl1 = generate_slug_and_urls(story_title)
         page_title = f"{story_title} | Suvichaar"
     except Exception as e:
+
         st.error(f"Error generating canonical URLs: {e}")
         nano = slug_nano = canurl = canurl1 = page_title = ""
 
-    # ----------- Upload Image to S3 -------------
+    # Image URL handling
     if image_url:
-        try:
-            response = requests.get(image_url, timeout=10)
-            response.raise_for_status()
-            filename = os.path.basename(urlparse(image_url).path)
-            ext = os.path.splitext(filename)[1].lower()
-            if ext not in [".jpg", ".jpeg", ".png", ".gif"]:
-                ext = ".jpg"
-            unique_filename = f"{uuid.uuid4().hex}{ext}"
-            s3_key = f"{s3_prefix}{unique_filename}"
 
-            s3_client.put_object(
-                Bucket=bucket_name,
-                Key=s3_key,
-                Body=response.content,
-                ContentType=response.headers.get("Content-Type", "image/jpeg"),
-            )
-            uploaded_url = f"{cdn_base_url}{s3_key}"
-            key_path = s3_key
-            st.success("Image uploaded successfully!")
-            # st.image(uploaded_url, caption="Uploaded Image", use_container_width=True)
+        filename = os.path.basename(urlparse(image_url).path)
+        ext = os.path.splitext(filename)[1].lower()
+        if ext not in [".jpg", ".jpeg", ".png", ".gif"]:
+            ext = ".jpg"
 
-        except Exception as e:
-            st.warning(f"Failed to fetch/upload image. Using fallback. Error: {e}")
+        if image_url.startswith("https://stories.suvichaar.org/"):
+
+            uploaded_url = image_url
+            key_path = "/".join(urlparse(image_url).path.split("/")[2:])
+
+        else:
+
+            try:
+                response = requests.get(image_url, timeout=10)
+                response.raise_for_status()
+                unique_filename = f"{uuid.uuid4().hex}{ext}"
+                s3_key = f"{s3_prefix}{unique_filename}"
+                s3_client.put_object(
+                    Bucket=bucket_name,
+                    Key=s3_key,
+                    Body=response.content,
+                    ContentType=response.headers.get("Content-Type", "image/jpeg"),
+                )
+                uploaded_url = f"{cdn_base_url}{s3_key}"
+                key_path = s3_key
+                st.success("Image uploaded successfully!")
+
+            except Exception as e:
+                st.warning(f"Failed to fetch/upload image. Using fallback. Error: {e}")
+                uploaded_url = ""
     else:
         st.info("No Image URL provided. Using default.")
 
-    # ----------- Modify HTML Template -------------
     try:
         template_path = "templates/masterregex.html"
         with open(template_path, "r", encoding="utf-8") as file:
             html_template = file.read()
 
-        html_template = html_template.replace("{{user}}", random.choice(["Onip", "Naman", "Mayank"]))
+
+        user_mapping = {
+            "Mayank": "https://www.instagram.com/iamkrmayank?igsh=eW82NW1qbjh4OXY2&utm_source=qr",
+            "Onip": "https://www.instagram.com/onip.mathur/profilecard/?igsh=MW5zMm5qMXhybGNmdA==",
+            "Naman": "https://njnaman.in/"
+        }
+
+        filter_tags = [tag.strip() for tag in tag_input.split(",") if tag.strip()]
+
+        category_mapping = {
+            "Art": 21,
+            "Travel": 22,
+            "Entertainment": 23,
+            "Literature": 24,
+            "Books": 25,
+            "Sports": 26,
+            "History": 27,
+            "Culture": 28,
+            "Wildlife": 29,
+            "Spiritual": 30
+        }
+
+        filternumber = category_mapping[categories]
+        selected_user = random.choice(list(user_mapping.keys()))
+        html_template = html_template.replace("{{user}}", selected_user)
+        html_template = html_template.replace("{{userprofileurl}}", user_mapping[selected_user])
         html_template = html_template.replace("{{publishedtime}}", datetime.now(timezone.utc).isoformat(timespec='seconds'))
         html_template = html_template.replace("{{modifiedtime}}", datetime.now(timezone.utc).isoformat(timespec='seconds'))
-
         html_template = html_template.replace("{{storytitle}}", story_title)
         html_template = html_template.replace("{{metadescription}}", meta_description)
         html_template = html_template.replace("{{metakeywords}}", meta_keywords)
         html_template = html_template.replace("{{contenttype}}", content_type)
         html_template = html_template.replace("{{lang}}", language)
-
         html_template = html_template.replace("{{pagetitle}}", page_title)
         html_template = html_template.replace("{{canurl}}", canurl)
         html_template = html_template.replace("{{canurl1}}", canurl1)
 
-        resize_presets = {
-            "potraitcoverurl": (640, 853),
-            "msthumbnailcoverurl": (300, 300),
-            "image0": (720, 1200)
-        }
+        if image_url.startswith("http://media.suvichaar.org") or image_url.startswith("https://media.suvichaar.org"):
+    
+            html_template = html_template.replace("{{image0}}", image_url)
 
-        for label, (width, height) in resize_presets.items():
-            template = {
-                "bucket": "suvichaarapp",
-                "key": key_path,
-                "edits": {
-                    "resize": {
-                        "width": width,
-                        "height": height,
-                        "fit": "cover"
+        elif image_url.startswith("https://res.cloudinary.com"):
+            # Replace Cloudinary base with our CDN
+            parsed_cloudinary_url = urlparse(image_url)
+            cloudinary_key = parsed_cloudinary_url.path.lstrip("/")
+            key_path = f"media/{os.path.basename(cloudinary_key)}"
+
+            resize_presets = {
+                "potraitcoverurl": (640, 853),
+                "msthumbnailcoverurl": (300, 300),
+            }
+
+            for label, (width, height) in resize_presets.items():
+                template = {
+                    "bucket": bucket_name,
+                    "key": key_path,
+                    "edits": {
+                        "resize": {
+                            "width": width,
+                            "height": height,
+                            "fit": "cover"
+                        }
                     }
                 }
-            }
-            encoded = base64.urlsafe_b64encode(json.dumps(template).encode()).decode()
-            final_url = f"{cdn_prefix_media}{encoded}"
-            html_template = html_template.replace(f"{{{{{label}}}}}", final_url)
+                encoded = base64.urlsafe_b64encode(json.dumps(template).encode()).decode()
+                final_url = f"{cdn_prefix_media}{encoded}"
+                html_template = html_template.replace(f"{{{{{label}}}}}", final_url)
 
+            html_template = html_template.replace("{{image0}}", f"{cdn_prefix_media}{key_path}")
         # ----------- Extract <style amp-custom> block from uploaded raw HTML -------------
         extracted_style = ""
         if html_file:
@@ -250,14 +339,14 @@ if submit_button:
         # ----------- Generate and Provide Metadata JSON -------------
         metadata_dict = {
             "story_title": story_title,
-            "categories": categories,
-            "filterTags": "",
+            "categories": filternumber,
+            "filterTags": filter_tags,
             "story_uid": nano,
             "story_link": canurl,
             "storyhtmlurl": canurl1,
             "urlslug": slug_nano,
-            "cover_image_link": final_url,
-            "publisher_id": "",
+            "cover_image_link": cover_image_url,
+            "publisher_id": 3,
             "story_logo_link": "https://media.suvichaar.org/filters:resize/96x96/media/brandasset/suvichaariconblack.png",
             "keywords": meta_keywords,
             "metadescription": meta_description,
@@ -274,3 +363,4 @@ if submit_button:
 
     except Exception as e:
         st.error(f"Error processing HTML: {e}")
+
