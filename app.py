@@ -328,14 +328,6 @@ if submit_button:
         st.markdown("### Final Modified HTML")
         st.code(html_template, language="html")
 
-        # Provide download button for final HTML
-        st.download_button(
-            label="Download Final HTML",
-            data=html_template,
-            file_name=f"{slug_nano}.html",
-            mime="text/html",
-        )
-
         # ----------- Generate and Provide Metadata JSON -------------
         metadata_dict = {
             "story_title": story_title,
@@ -352,6 +344,14 @@ if submit_button:
             "metadescription": meta_description,
             "lang": language
         }
+        
+        # Provide download button for final HTML
+        st.download_button(
+            label="Download Final HTML",
+            data=html_template,
+            file_name=f"{slug_nano}.html",
+            mime="text/html",
+        )
 
         json_str = json.dumps(metadata_dict, indent=4)
         st.download_button(
