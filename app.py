@@ -12,7 +12,8 @@ from openai import AzureOpenAI
 from dotenv import load_dotenv
 from datetime import datetime, timezone
 import re
-
+from io import BytesIO
+import zipfile
 # Load environment variables
 load_dotenv()
 
@@ -344,6 +345,16 @@ if submit_button:
             "metadescription": meta_description,
             "lang": language
         }
+
+        json_str = json.dumps(metadata_dict, indent=4)
+
+        # Save data to session_state
+        st.session_state["final_html"] = html_template
+        st.session_state["metadata_json"] = json.dumps(metadata_dict, indent=4)
+
+        # Use BytesIO to prevent re-render reset
+        html_buffer = BytesIO(st.session_state["final_html"].encode("utf-8"))
+        json_buffer = BytesIO(st.session_state["metadata_json"].encode("utf-8"))
         
         # Provide download button for final HTML
         st.download_button(
